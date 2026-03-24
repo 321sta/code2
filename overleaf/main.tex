@@ -1,0 +1,617 @@
+% !TEX program = xelatex
+% NOTE: 为了更好的 Unicode 支持，请使用 XeLaTeX（或 LuaLaTeX）编译。
+\documentclass[11pt]{article}
+\usepackage[fontset=fandol]{ctex}   % 中文支持
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{1\baselineskip}
+
+\begin{document}
+
+
+% =========================
+% Chapter 4 (Overleaf)
+% =========================
+\section{第四章 基于 IBA 的 ELM 预测模型构建}
+\subsection{标准蝙蝠算法的缺陷分析}
+\label{sec:ch4_ba_defects}
+
+蝙蝠算法（BA）是一类模拟蝙蝠回声定位行为的群智能优化算法，具有实现简洁、参数相对较少等特点。然而在连续优化问题中，标准 BA 容易出现两类典型现象：一是早期下降后较快进入"平台区"，二是后期改进幅度有限，收敛过程呈现拖尾。下面结合基准函数上的收敛曲线对这一现象进行说明。
+
+首先标准蝙蝠算法易陷入局部最优，从图~\ref{fig:ch4_ba_defects} 可见，标准 BA 在前若干次迭代后其最优适应度下降趋缓，并较早进入相对稳定的平台区；相对而言，IBA 在相同迭代次数下可继续降低最优适应度，说明其在搜索过程中保持了更强的改进能力。
+
+其次后期收敛慢，可见标准 BA 在中后期的曲线变化幅度明显减小；而 IBA 曲线在中后期仍保持缓慢下降趋势，表明 IBA 对"后期收敛拖沓"的问题具有一定缓解作用。
+
+最后为更直观量化比较两种算法的收敛行为，本节在 Sphere function 上绘制 BA 与 IBA 的"最优适应度（Best fitness）—迭代次数（Iteration）"曲线，如图~\ref{fig:ch4_ba_defects} 所示。该图的纵轴采用对数尺度（log scale），阴影带表示多次重复实验的波动范围（例如均值$\pm$标准差），以反映算法稳定性差异：标准 BA 的波动范围更大，而 IBA 的收敛更快且更稳定。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.88\linewidth]{figures/fig_4_1_ba_defects.png}
+  \caption{BA 与 IBA 在 Sphere function 上的收敛曲线对比（纵轴为 log 标度；阴影带表示多次运行的波动范围）}
+  \label{fig:ch4_ba_defects}
+\end{figure}
+
+\subsection{蝙蝠算法的改进策略（IBA）}
+\label{sec:ch4_iba}
+
+针对标准 BA 在收敛速度与稳定性方面的不足，本研究构建 IBA，并重点从两个环节进行增强：（1）利用混沌序列提升初始种群的遍历性与多样性；（2）引入自适应惯性权重 $w(t)$，实现从全局搜索到局部开发的平滑过渡。两项改进分别对应图~\ref{fig:ch4_chaos} 与图~\ref{fig:ch4_adaptive_w} 的示意结果。
+
+\subsubsection{引入混沌映射（Tent/Logistic）提升初始种群多样性}
+\label{subsec:ch4_chaos}
+
+随机初始化在高维空间中可能导致种群分布不均。为增强初始种群的遍历性，本研究采用混沌映射生成 $x_n\in(0,1)$ 的序列，并通过线性映射将其转换到各维搜索边界 $[lb,ub]$，以构造初始位置向量。图~\ref{fig:ch4_chaos} 给出了 Tent 与 Logistic 两类混沌序列的典型形态，用于直观说明其非周期性与遍历特征。
+
+\paragraph{Tent 映射}
+\begin{equation}
+x_{n+1}=\mu\cdot \min(x_n,1-x_n), \quad \mu=2.
+\label{eq:tent_map}
+\end{equation}
+
+\paragraph{Logistic 映射}
+\begin{equation}
+x_{n+1}=\mu\cdot x_n(1-x_n), \quad \mu=4.
+\label{eq:logistic_map}
+\end{equation}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.90\linewidth]{figures/fig_4_2_1_chaos.png}
+  \caption{Tent 与 Logistic 混沌序列示意（用于构造更具遍历性的初始种群）}
+  \label{fig:ch4_chaos}
+\end{figure}
+
+\subsubsection{引入自适应惯性权重平衡全局与局部搜索能力}
+\label{subsec:ch4_inertia}
+
+为改善中后期收敛变慢的问题，在速度更新中引入惯性权重 $w(t)$，使算法在迭代前期保持较强探索能力，在迭代后期更偏向局部开发。惯性权重采用线性递减策略，其变化趋势如图~\ref{fig:ch4_adaptive_w} 所示（由 $0.9$ 线性下降至 $0.4$）。
+
+\begin{equation}
+\mathbf{v}_i^{t+1}=w(t)\mathbf{v}_i^t + (\mathbf{x}_i^t-\mathbf{x}_{best}^t)\cdot f_i,
+\label{eq:iba_velocity}
+\end{equation}
+
+\begin{equation}
+w(t)=w_{\max}-\frac{t}{T}\left(w_{\max}-w_{\min}\right),
+\label{eq:adaptive_w}
+\end{equation}
+其中 $T$ 为最大迭代代数，$w_{\max}=0.9$，$w_{\min}=0.4$。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.78\linewidth]{figures/fig_4_2_2_adaptive_weight.png}
+  \caption{自适应惯性权重 $w(t)$ 的线性递减示意（$0.9\rightarrow 0.4$，体现全局搜索向局部开发的过渡）}
+  \label{fig:ch4_adaptive_w}
+\end{figure}
+
+\subsubsection{引入精英保留策略防止种群退化}
+\label{subsec:ch4_elite}
+
+为进一步提升寻优过程的稳定性，IBA 可采用精英保留（elitism）策略：每代迭代后保留适应度最优的若干个体，以避免优良解在随机更新过程中丢失。该策略属于实现层面的稳定化手段，不改变图~\ref{fig:ch4_adaptive_w} 所示的核心改进机制（混沌初始化与惯性权重调节）。
+
+\subsection{IBA 优化 ELM 模型的融合设计}
+\label{sec:ch4_fusion}
+
+ELM 为单隐层前馈网络，其输出权重可通过最小二乘一次求解，训练速度较快。但输入层权重与隐层偏置的随机初始化会带来性能波动。为提升模型稳定性，本研究采用 IBA 对 ELM 的输入权重、隐层偏置及正则化系数进行联合寻优，得到 IBA-ELM 模型。
+
+\subsubsection{适应度函数设计}
+\label{subsec:ch4_fitness}
+
+为与图~\ref{fig:ch4_iba_elm_fit} 左侧"\textit{K-fold CV RMSE}"曲线一致，适应度函数定义为 $K$ 折交叉验证 RMSE 的平均值。对候选解 $\mathbf{x}$（对应一组 ELM 的 $\mathbf{W}_{in}$、$\mathbf{b}$ 与正则化系数 $\lambda$），第 $k$ 折验证集上的 RMSE 记为 $\mathrm{RMSE}^{(k)}(\mathbf{x})$，则：
+\begin{equation}
+\mathcal{F}(\mathbf{x})=\frac{1}{K}\sum_{k=1}^{K}\mathrm{RMSE}^{(k)}(\mathbf{x}),
+\label{eq:kfold_rmse}
+\end{equation}
+并以 $\min \mathcal{F}(\mathbf{x})$ 为优化目标。
+
+\subsubsection{ELM 输出权重的正则化改进}
+\label{subsec:ch4_regularization}
+
+标准 ELM 的输出权重 $\boldsymbol{\beta}$ 通过 Moore-Penrose 伪逆直接求解：
+\begin{equation}
+\boldsymbol{\beta} = \mathbf{H}^{+}\mathbf{y} = (\mathbf{H}^{\top}\mathbf{H})^{-1}\mathbf{H}^{\top}\mathbf{y},
+\label{eq:elm_pseudoinverse}
+\end{equation}
+其中 $\mathbf{H}$ 为隐层输出矩阵。这种方式在训练样本有限、特征共线性较强时容易出现过拟合或数值不稳定，泛化能力受限。
+
+为此，本研究将 ELM 输出权重的求解方式改为\textbf{岭回归（Ridge Regression）}，引入 L2 正则化：
+\begin{equation}
+\boldsymbol{\beta} = (\mathbf{H}^{\top}\mathbf{H} + \lambda\mathbf{I})^{-1}\mathbf{H}^{\top}\mathbf{y},
+\label{eq:elm_ridge}
+\end{equation}
+其中 $\lambda > 0$ 为正则化系数，对输出权重的 L2 范数加以约束，有效抑制过拟合、提升泛化能力。正则化矩阵 $(\mathbf{H}^{\top}\mathbf{H}+\lambda\mathbf{I})$ 在 $\lambda > 0$ 时始终可逆，从而保证了数值稳定性。
+
+传统做法需要人工网格搜索确定 $\lambda$，耗时且难以保证最优。本研究将 $\log_{10}(\lambda)$ 作为搜索向量的附加维度，与 ELM 输入权重、隐层偏置\textbf{联合优化}，由 IBA 自适应确定，无需人工调参。$\lambda$ 的搜索范围设为 $\log_{10}(\lambda)\in[-4,\,2]$，即 $\lambda\in[10^{-4},\,100]$。
+
+\subsubsection{蝙蝠位置映射机制}
+\label{subsec:ch4_mapping}
+
+设输入维度为 $n_{in}$，隐层节点数为 $n_{hidden}$。待优化参数包括输入层权重矩阵 $\mathbf{W}_{in}\in\mathbb{R}^{n_{in}\times n_{hidden}}$、隐层偏置 $\mathbf{b}\in\mathbb{R}^{n_{hidden}}$ 以及正则化系数的对数值 $\log_{10}(\lambda)\in\mathbb{R}$。将其向量化编码为：
+\begin{equation}
+\mathbf{x}=\Big[\,\mathrm{vec}(\mathbf{W}_{in});\,\mathbf{b};\,\log_{10}(\lambda)\,\Big]\in\mathbb{R}^{D},
+\quad
+D=n_{in}\cdot n_{hidden}+n_{hidden}+1.
+\label{eq:vectorize}
+\end{equation}
+给定 $\mathbf{x}$ 后，可重构得到 $(\mathbf{W}_{in},\mathbf{b},\lambda)$ 并计算式~\eqref{eq:kfold_rmse} 的适应度。相比原始 ELM，搜索维度仅增加 1，计算开销可忽略，而模型泛化能力显著提升。
+
+\subsubsection{IBA-ELM 模型整体运行流程与算法复杂度分析}
+\label{subsec:ch4_workflow_complexity}
+
+IBA-ELM 的训练与预测流程如下：
+\begin{enumerate}
+  \item \textbf{数据准备：}加载两季日尺度数据，构造特征向量与目标变量 $ET_c$，并进行标准化处理。
+  \item \textbf{参数设置：}设置隐层节点数 $n_{hidden}$；设置 IBA 参数（种群规模 $n_{pop}$、最大迭代代数 $T$、频率范围等），并设置交叉验证折数 $K$、搜索边界 $[lb,ub]$ 及正则化系数搜索范围 $\log_{10}(\lambda)\in[-4,2]$。
+  \item \textbf{编码维度：}根据式~\eqref{eq:vectorize} 确定优化维度 $D=n_{in}\cdot n_{hidden}+n_{hidden}+1$。
+  \item \textbf{IBA 寻优：}使用混沌序列初始化种群；迭代更新（含自适应惯性权重与精英保留策略）并评估 $K$ 折 RMSE 适应度，得到最优解 $\mathbf{x}^\star$，包含最优 $\lambda^\star$。
+  \item \textbf{解码训练：}将 $\mathbf{x}^\star$ 解码为 $(\mathbf{W}_{in}^\star,\mathbf{b}^\star,\lambda^\star)$，按式~\eqref{eq:elm_ridge} 求解输出权重 $\boldsymbol{\beta}^\star$，训练得到最终 IBA-ELM 模型。
+  \item \textbf{预测评估：}输出预测值并绘制（1）$K$ 折 CV RMSE 随迭代变化的收敛曲线；（2）标准化后的观测值与预测值散点拟合图（与图~\ref{fig:ch4_iba_elm_fit} 一致）。
+\end{enumerate}
+
+
+单次适应度评估需要进行 $K$ 折 ELM 训练与验证（含正则化求解）。设样本量为 $n$，隐层节点数为 $n_{hidden}$，则每折包含隐层输出计算与正则化输出权重求解，整体可近似为：
+\begin{equation}
+\mathcal{O}\!\left(K\cdot (n\cdot n_{hidden}+n_{hidden}^2)\right).
+\label{eq:fitness_complexity}
+\end{equation}
+IBA 每代评估 $n_{pop}$ 个体，共 $T$ 代，因此总复杂度近似为：
+\begin{equation}
+\mathcal{O}\!\left(n_{pop}\cdot T \cdot K\cdot (n\cdot n_{hidden}+n_{hidden}^2)\right).
+\label{eq:total_complexity}
+\end{equation}
+
+可以看出，算法复杂度主要受种群规模、迭代次数以及隐层节点数影响。引入 L2 正则化后搜索维度仅增加 1（即 $\log_{10}(\lambda)$），对整体计算复杂度影响可忽略不计，而模型的泛化能力与数值稳定性均得到改善。整体计算复杂度仍保持在可接受范围内，适用于中等规模数据集的预测任务。
+
+\subsubsection{收敛与拟合效果展示}
+图~\ref{fig:ch4_iba_elm_fit} 左侧给出了 IBA-ELM 在寻优过程中 $K$ 折交叉验证 RMSE 的收敛曲线；右侧为标准化后的观测值（Observed, standardized）与预测值（Predicted, standardized）散点图，并绘制参考线 $y=x$ 以便直观对比预测一致性。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.95\linewidth]{figures/fig_4_3_iba_elm.png}
+  \caption{IBA-ELM 的寻优收敛过程与拟合效果：左为 $K$ 折 CV RMSE 随迭代变化；右为标准化观测值与标准化预测值散点图（虚线为 $y=x$）}
+  \label{fig:ch4_iba_elm_fit}
+\end{figure}
+
+\subsection{本章小结}
+\label{sec:ch4_summary}
+
+本章围绕冬小麦日尺度 $ET_c$ 预测任务构建 IBA-ELM 模型，并结合图示结果完成如下工作：
+
+（1）在 Sphere function 上对比展示 BA 与 IBA 的收敛曲线（对数纵轴与多次运行波动带），结果表明 IBA 收敛更快且稳定性更好，标准 BA 更易进入平台区且后期改进幅度有限；
+
+（2）给出 IBA 的两项核心改进：利用 Tent/Logistic 混沌序列增强初始种群遍历性，并采用线性递减惯性权重实现全局搜索向局部开发的过渡（$w(t):0.9\rightarrow 0.4$）；
+
+（3）在 ELM 输出权重求解中引入 L2 正则化（岭回归），将正则化系数 $\lambda$ 以 $\log_{10}(\lambda)$ 形式纳入 IBA 搜索向量，实现联合自适应优化，有效抑制过拟合并提升模型泛化能力；
+
+（4）将 IBA 与正则化 ELM 融合：以 $K$ 折交叉验证 RMSE 为适应度函数，完成对 ELM 输入权重、隐层偏置与正则化系数的向量化编码与连续寻优，并展示 IBA-ELM 在本任务上的 CV-RMSE 收敛曲线与标准化拟合散点图。
+
+基于本章模型构建结果，下一章将进一步从评价指标体系、对比实验以及气象缺失情景鲁棒性等角度对模型预测性能进行系统评估。
+
+
+% =========================
+% Chapter 5 (merged ch5 + ch6)
+% =========================
+\newpage
+\section{第五章 模型预测性能评估与对比分析}
+\label{ch:performance}
+
+本章在第四章所构建的 IBA-ELM 模型基础上，从收敛行为、消融实验、综合预测精度、分生育期误差分布以及气象数据缺失情景下的鲁棒性等多个角度，对模型性能进行系统评估与对比分析。对比模型包括 BA-ELM、PSO-ELM、原始 ELM，以及传统机器学习方法 MLP。
+
+% ============================================================
+
+\subsection{IBA 算法优化性能验证}
+\label{sec:convergence}
+
+\subsubsection{适应度收敛曲线对比}
+\label{subsec:convergence_compare}
+
+图~\ref{fig:5_2_1} 展示了 IBA-ELM、PSO-ELM 与原始 ELM 在迭代过程中的 K-fold CV RMSE 变化情况。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.9\linewidth]{figures/fig_5_2_1_convergence.png}
+  \caption{IBA-ELM、PSO-ELM 与 ELM 的收敛曲线对比}
+  \label{fig:5_2_1}
+\end{figure}
+
+从图中可以观察到：
+
+（1）原始 ELM 为固定值（无迭代优化），其 RMSE 水平高于两种群智能优化模型；
+
+（2）IBA-ELM 在前 10 次迭代内快速下降，随后趋于稳定；
+
+（3）PSO-ELM 在整个迭代过程中持续下降，最终达到更低的 RMSE 水平。
+
+结果表明，两种群智能优化算法均能显著改善原始 ELM 的性能，其中 PSO-ELM 在最终 RMSE 上略优于 IBA-ELM，而 IBA-ELM 收敛速度较快、早期下降更明显。
+
+\subsubsection{混沌初始化与精英策略影响}
+\label{subsec:ablation}
+
+为验证混沌初始化与精英保留策略对 IBA 性能的影响，进行消融实验，对比 IBA(full)、IBA(no chaos) 与 IBA(no elite)。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=0.9\linewidth]{figures/fig_5_2_2_ablation.png}
+  \caption{IBA 消融实验结果（混沌初始化与精英策略）}
+  \label{fig:5_2_2}
+\end{figure}
+
+由图~\ref{fig:5_2_2} 可见：
+
+（1）去除精英策略后，模型收敛效果明显下降，最终 RMSE 最高；
+
+（2）去除混沌初始化后，整体收敛趋势仍保持下降，但最终性能略优于 full 版本；
+
+（3）完整 IBA 结构整体稳定，收敛过程平滑。
+
+说明精英策略对稳定性具有显著作用，而混沌初始化更多影响初始阶段的搜索多样性。
+
+% ============================================================
+\subsection{全气象要素输入下的ETc预测结果对比}
+\label{sec:metrics}
+
+\subsubsection{预测精度对比}
+\label{subsec:metrics_compare}
+
+图~\ref{fig:5_3_1} 给出了不同模型在 R$^2$、RMSE 与 MAE 指标下的对比结果。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig_5_3_1_metrics.png}
+  \caption{不同模型的整体预测精度对比}
+  \label{fig:5_3_1}
+\end{figure}
+
+
+可以观察到：
+
+（1）IBA-ELM 在三个评价指标上均表现最优，其 $R^2$ 达到 0.9033，为所有模型中最高，说明其对目标变量具有最强拟合能力；同时其 RMSE 与 MAE 分别为 0.3110 和 0.2443，均为最低，表明其预测误差最小，预测结果最接近真实观测值，具有更高的预测精度与稳定性。
+
+（2）BA-ELM 的整体性能次于 IBA-ELM，但优于原始 ELM，说明群智能优化算法能够有效改善 ELM 随机初始化带来的参数不稳定问题，从而提升模型性能。进一步比较可知，IBA-ELM 相比 BA-ELM 在 $R^2$ 指标上进一步提高，同时 RMSE 与 MAE 均有所降低，表明所提出的改进策略（包括混沌初始化、自适应惯性权重及 L2 正则化）在参数寻优过程中能够获得更优解，提高模型预测能力。
+
+（3）原始 ELM 与 MLP 的预测性能整体低于优化后的 ELM 模型，其中 MLP 的 RMSE 达到 0.3952，为所有模型中最高，说明其预测误差较大，在本数据集上的适应能力相对较弱。这表明，仅依赖随机初始化或传统训练方式的模型，在复杂非线性预测任务中难以获得最优参数配置。
+
+进一步地，以原始 ELM 为基准，IBA-ELM 在 $R^2$ 指标上提升约 5.24\%，同时 RMSE 降低约 18.40\%。这一结果表明，通过群智能优化算法对 ELM 输入权重与隐层偏置进行全局搜索，并结合 L2 正则化自适应调节，可以获得更优参数组合，从而有效降低预测误差，提高模型预测精度。
+
+综合分析可知，IBA-ELM 性能提升的主要原因在于其优化机制的改进：一方面，通过混沌初始化提高种群分布均匀性，增强了解空间的全局搜索能力；另一方面，通过自适应惯性权重调节搜索强度，使算法在搜索后期能够进行更精细的局部优化；此外，引入 L2 正则化并由 IBA 联合优化正则化系数 $\lambda$，有效降低了模型过拟合风险，提升了泛化能力。因此，IBA-ELM 能够在拟合能力与预测精度方面取得更优表现，验证了所提出改进策略在 ELM 参数优化中的有效性。
+
+\begin{table}[htbp]
+\centering
+\caption{不同模型的整体预测性能对比}
+\label{tab:model_comparison}
+\begin{tabular}{lccc}
+\toprule
+Model & $R^2$ & RMSE & MAE \\
+\midrule
+IBA-ELM & 0.9033 & 0.3110 & 0.2443 \\
+BA-ELM  & 0.8820 & 0.3435 & 0.2683 \\
+ELM     & 0.8583 & 0.3764 & 0.2994 \\
+MLP     & 0.8438 & 0.3952 & 0.2976 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{冬小麦不同生育期的预测误差特征分析}
+\label{subsec:stage_error}
+
+为分析模型在不同生育阶段的适应能力，图~\ref{fig:5_3_2} 给出了各阶段 RMSE 分布。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig_5_3_2_stage_errors.png}
+  \caption{不同生育阶段的预测误差对比}
+  \label{fig:5_3_2}
+\end{figure}
+
+结果显示，各模型在不同生育阶段的预测误差呈现出明显的阶段性差异，反映出冬小麦蒸散过程在不同生长阶段的复杂性及其对气象因子的响应敏感程度存在显著变化。
+
+首先，在灌浆后期至成熟期阶段，各模型的 RMSE 整体处于较高水平，其中 MLP 与原始 ELM 的误差增长尤为明显，而 IBA-ELM 与 BA-ELM 的误差增长幅度相对较小。这主要是由于该阶段作物逐渐进入生理成熟期，叶面积指数下降，蒸腾作用减弱，同时受气温波动、辐射变化及水分再分配等多重因素影响，ETc 呈现更强的非线性波动特征，使模型预测难度显著增加。在此情况下，经过群智能优化与 L2 正则化的 IBA-ELM 能够获得更优参数组合，从而保持较好的预测稳定性，体现出更强的非线性拟合能力。
+
+其次，在拔节期、抽穗期及灌浆前期阶段，各模型 RMSE 整体较低，其中 IBA-ELM 始终保持最低或接近最低误差水平。这一阶段作物生长较为稳定，蒸散过程主要受辐射和温度等主导气象因子控制，系统非线性程度相对较低，使得数据驱动模型更容易学习其内在映射关系。同时，IBA 优化策略通过增强参数搜索的全局性和稳定性，使 ELM 能够获得更优的输入权重与隐层偏置，从而进一步降低预测误差。
+
+进一步比较不同模型可以发现，IBA-ELM 在绝大多数生育阶段均表现出更低或更稳定的 RMSE 水平，而原始 ELM 与 MLP 在多个阶段出现明显误差波动，说明未经优化的模型参数难以充分刻画 ETc 的动态变化特征。相比之下，群智能优化方法通过全局搜索显著改善了模型参数配置，使模型能够更好适应不同生育阶段的复杂非线性关系。
+
+综合分析可知，不同生育阶段的预测误差差异不仅反映了 ETc 本身的阶段性变化特征，同时也验证了 IBA-ELM 在参数优化和非线性拟合方面的有效性。所提出模型能够在蒸散过程复杂度较高的关键生育阶段仍保持较好的预测精度，体现出更强的鲁棒性与阶段适应能力。
+
+% ============================================================
+\subsection{不同气象输入情景下的预测性能}
+\label{sec:scenario}
+
+在实际农业生产中，气象观测数据往往存在缺测或不完整情况。为评估 IBA-ELM 在不同输入条件下的鲁棒性与泛化能力，本节构建多种气象输入情景，分别在 IBA-ELM、BA-ELM、MLP 与 ELM 四种模型上进行对比实验，并对各模型在不同情景下的预测性能进行横向分析。
+
+三种输入情景定义如下：
+
+\begin{itemize}
+\item 情景 I（Scenario I）：完整气象因子输入（T\_mean、RH\_mean、u\_2\_mean、Rs\_mean、DOY、kc）；
+\item 情景 II（Scenario II）：不包含太阳辐射（移除 Rs\_mean）；
+\item 情景 III（Scenario III）：仅使用温度相关因子（T\_max、T\_min、DOY）。
+\end{itemize}
+
+\subsubsection{各模型在不同情景下的预测性能}
+\label{subsec:scenario_per_model}
+
+图~\ref{fig:6_2_iba_elm} 至图~\ref{fig:6_2_elm} 分别给出了四种模型在三种情景下的 R$^2$、RMSE 与 MAE 对比，反映各模型对气象特征缺失的敏感程度。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig_6_2_iba_elm_scenario_metrics.png}
+  \caption{IBA-ELM 在不同气象输入情景下的预测性能对比}
+  \label{fig:6_2_iba_elm}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig_6_2_ba_elm_scenario_metrics.png}
+  \caption{BA-ELM 在不同气象输入情景下的预测性能对比}
+  \label{fig:6_2_ba_elm}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig_6_2_mlp_scenario_metrics.png}
+  \caption{MLP 在不同气象输入情景下的预测性能对比}
+  \label{fig:6_2_mlp}
+\end{figure}
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig_6_2_elm_scenario_metrics.png}
+  \caption{ELM 在不同气象输入情景下的预测性能对比}
+  \label{fig:6_2_elm}
+\end{figure}
+
+\subsubsection{多模型情景性能综合对比}
+\label{subsec:scenario_compare_all}
+
+图~\ref{fig:6_2} 与表~\ref{tab:scenario_performance} 给出了四种模型在三种情景下的综合性能汇总。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig_6_2_scenario_metrics.png}
+  \caption{不同气象输入情景下各模型预测性能综合对比}
+  \label{fig:6_2}
+\end{figure}
+
+\begin{table}[htbp]
+\centering
+\caption{不同模型在各情景下的性能指标}
+\label{tab:scenario_performance}
+\begin{tabular}{l*{9}{c}}
+\toprule
+\multirow{2}{*}{模型} & \multicolumn{3}{c}{情景 I} & \multicolumn{3}{c}{情景 II} & \multicolumn{3}{c}{情景 III} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-7} \cmidrule(lr){8-10}
+ & R$^2$ & RMSE & MAE & R$^2$ & RMSE & MAE & R$^2$ & RMSE & MAE \\
+\midrule
+IBA-ELM & 0.9455 & 0.2335 & 0.1896 & 0.9410 & 0.2429 & 0.1932 & 0.9345 & 0.2560 & 0.2048 \\
+BA-ELM  & 0.9253 & 0.2733 & 0.2156 & 0.9305 & 0.2636 & 0.2135 & 0.9122 & 0.2963 & 0.2425 \\
+MLP     & 0.9124 & 0.2959 & 0.2282 & 0.9302 & 0.2642 & 0.2156 & 0.8947 & 0.3245 & 0.2613 \\
+ELM     & 0.9031 & 0.3113 & 0.2473 & 0.8926 & 0.3277 & 0.2629 & 0.8430 & 0.3962 & 0.3150 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+总体来看，IBA-ELM 在三种情景下均取得最优表现。情景 I（完整输入）中，IBA-ELM 的 R$^2$、RMSE 和 MAE 分别为 0.9455、0.2335 和 0.1896，优于 BA-ELM（0.9253、0.2733、0.2156）、MLP（0.9124、0.2959、0.2282）和 ELM（0.9031、0.3113、0.2473）。与最差基线模型 ELM 相比，IBA-ELM 的 RMSE 降低约 25.0\%，表明改进优化策略对模型精度的提升效果显著。
+
+在输入特征逐步退化的情景下，各模型表现出明显分化。情景 III（仅温度输入）中，ELM 的 R$^2$ 由情景 I 的 0.9031 骤降至 0.8430，RMSE 上升 27.3\%（由 0.3113 升至 0.3962），退化幅度最大，说明基础 ELM 对特征缺失最为敏感。MLP 在情景 III 中 R$^2$ 降至 0.8947，RMSE 上升约 9.7\%。BA-ELM 的退化程度相对适中，情景 III 的 R$^2$ 为 0.9122，RMSE 为 0.2963。相比之下，IBA-ELM 从情景 I 至情景 III，R$^2$ 仅下降 0.011（由 0.9455 至 0.9345），RMSE 上升幅度约 9.6\%，退化幅度在四个模型中最小，体现出最强的鲁棒性。这与 IBA-ELM 引入 L2 正则化的设计密切相关：正则化约束有效降低了模型对输入特征完整性的过度依赖，使其在特征缺失条件下仍能保持良好泛化能力。
+
+值得注意的是，BA-ELM 与 MLP 在情景 II（移除辐射因子）下的 RMSE 略低于情景 I，这一现象表明对于这两种模型，辐射特征引入的噪声在一定程度上干扰了拟合过程，而非提供正面贡献。与之相反，IBA-ELM 在情景 I 中始终保持最低误差，说明改进后的权重优化机制（含正则化联合优化）使模型能够有效利用辐射等高维气象特征，而不受冗余信息干扰。
+
+综上所述，IBA-ELM 在完整输入条件下精度最高，在输入退化条件下鲁棒性最强，整体性能全面领先于 BA-ELM、ELM 及 MLP，验证了所提改进算法在实际气象数据不完整情景下的有效性与实用价值。
+
+% ============================================================
+\subsection{IBA-ELM 模型与传统经验公式的对比}
+\label{sec:hs_compare}
+
+Hargreaves-Samani 方法是一种基于温度的经验估算公式，常用于气象数据受限情形。为比较数据驱动模型与经验公式的差异，本节在温度输入条件下（Scenario III）对两者进行对比。
+
+图~\ref{fig:6_3} 展示了 IBA-ELM 与 H-S 方法在 R$^2$、RMSE 与 MAE 指标下的对比结果，并给出预测-观测散点图。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig_6_3_iba_vs_hs.png}
+  \caption{IBA-ELM 与 Hargreaves-Samani 方法对比（温度情景）}
+  \label{fig:6_3}
+\end{figure}
+
+结果表明：
+
+（1）IBA-ELM 在 R$^2$ 上显著高于 H-S 方法；
+
+（2）H-S 方法误差明显更大，RMSE 与 MAE 均高于 IBA-ELM；
+
+（3）从散点分布看，IBA-ELM 预测点更接近 $y=x$ 参考线，而 H-S 方法偏离较为明显。
+
+说明在仅有温度信息的情况下，数据驱动模型仍优于传统经验公式。
+
+% ============================================================
+\subsection{气象因子对冬小麦ETc的相关性与敏感性分析}
+\label{sec:sensitivity}
+
+为进一步理解模型行为，本节从两个角度进行分析：
+
+（1）气象因子与 ETc 的线性相关性；
+
+（2）模型对输入扰动的敏感性。
+
+\subsubsection{相关性分析}
+
+图~\ref{fig:6_4} 左图给出了主要气象因子与 ETc 的相关系数。
+
+可以看到：
+
+\begin{itemize}
+\item 作物系数 $k_c$ 与 ETc 呈强正相关；
+\item 辐射（$Rs\_mean$）与风速（$u\_2\_mean$）为正相关；
+\item 相对湿度与降水呈负相关；
+\item 年积日（DOY）表现为明显负相关趋势。
+\end{itemize}
+
+说明 ETc 受辐射、作物生育进程及空气动力条件的显著影响。
+
+\subsubsection{敏感性分析}
+
+图~\ref{fig:6_4} 右图展示了在完整输入情景下，各因子增加 1 个标准差时输出变化的平均绝对幅度。
+
+可以观察到：
+
+\begin{itemize}
+\item DOY 与 $k_c$ 对模型输出影响最大；
+\item 辐射与温度影响中等；
+\item 风速与湿度敏感性相对较低。
+\end{itemize}
+
+该结果与相关性分析结论基本一致，说明模型内部响应机制与物理规律具有一致性。
+
+\begin{figure}[htbp]
+  \centering
+  \includegraphics[width=\linewidth]{figures/fig_6_4_correlation_sensitivity.png}
+  \caption{气象因子相关性与敏感性分析}
+  \label{fig:6_4}
+\end{figure}
+
+% ============================================================
+\subsection{本章小结}
+\label{sec:ch5_summary}
+
+本章通过收敛曲线、消融实验、综合指标、分阶段误差分析以及气象数据缺失情景对比，对 IBA-ELM 模型进行了系统评估。
+
+主要结论包括：
+
+（1）群智能优化算法可显著提升 ELM 性能；在引入 L2 正则化后，IBA-ELM 的整体预测性能（$R^2=0.9033$，RMSE$=0.3110$，MAE$=0.2443$）相比 BA-ELM、原始 ELM 及 MLP 均取得最优结果；
+
+（2）精英策略对 IBA 收敛稳定性具有重要作用；
+
+（3）IBA-ELM 在所有对比模型中取得最佳综合性能，其 $R^2$ 指标最高，同时 RMSE 与 MAE 最低，表明所提出的改进策略（混沌初始化、自适应惯性权重与 L2 正则化联合优化）能够有效提高模型预测精度与泛化能力；
+
+（4）模型在成熟期阶段预测难度较大，误差显著高于其他阶段；
+
+（5）在气象缺失情景下，IBA-ELM 从情景 I 至情景 III 的 R$^2$ 仅下降 0.011，退化幅度在四个模型中最小，体现出最强的鲁棒性；与传统 Hargreaves-Samani 经验公式相比，数据驱动模型在仅使用温度输入的情景下仍表现出更高预测精度；
+
+（6）相关性与敏感性分析结果表明，作物系数与生育进程因子对 ETc 影响最为显著，验证了模型响应机制与物理规律的一致性。
+
+然而，本研究仍存在一定局限性。一方面，IBA-ELM 的优化性能对种群规模、迭代次数及惯性权重等参数设置较为敏感，在迁移至其他区域或不同作物数据集时可能需要重新调整参数；另一方面，随着样本规模及隐层节点数增加，基于群智能的参数寻优过程将带来额外计算开销，可能影响模型训练效率。
+
+未来研究可进一步探索自适应参数调节机制、并行化优化策略或轻量化群智能算法，以降低计算成本并提升模型跨场景适应能力，从而进一步增强其在农业蒸散量预测中的实用性与推广价值。
+
+
+% ============================================================
+% Chapter 6: System and Installation
+% ============================================================
+\newpage
+\section{第六章 冬小麦智能灌溉预测系统}
+\label{ch:system}
+
+在完成 IBA-ELM 预测模型的构建与性能评估后，本章基于训练好的模型开发了一套面向实际农业生产应用的冬小麦智能灌溉需水预测系统。该系统以 Streamlit 为框架构建交互式可视化界面，支持单次预测与批量预测两种使用模式，并提供灌溉等级建议与模型信息展示功能，旨在将研究成果转化为易于使用的决策辅助工具。
+
+\subsection{系统概述}
+\label{sec:sys_overview}
+
+本系统以第四章所构建的 IBA-ELM（含 L2 正则化）模型为核心预测引擎，通过 Web 端交互界面实现对冬小麦日蒸散量（$ET_c$，单位：mm/day）的实时预测，并根据预测结果自动给出灌溉等级建议，辅助农业管理者进行精准灌溉决策。系统主要面向以下使用场景：
+
+（1）农业技术人员或研究人员根据当日气象观测数据，快速获取冬小麦 $ET_c$ 预测值及灌溉建议；
+
+（2）科研人员上传多日气象数据文件，进行批量逐日预测并可视化分析预测结果；
+
+（3）模型开发者查看模型参数配置与性能指标，以及 IBA 优化收敛曲线。
+
+\subsection{主要功能模块}
+\label{sec:sys_modules}
+
+\subsubsection{单次预测模块}
+\label{subsec:single_predict}
+
+用户在界面中输入当日 6 项气象参数（日均气温 $T_{mean}$、相对湿度 $RH_{mean}$、大气压、风速 $u_2$、太阳辐射 $Rs$、作物系数 $K_c$），系统调用 IBA-ELM 模型进行推理，输出当日 $ET_c$ 预测值（mm/day），并根据表~\ref{tab:irrigation_level} 自动判断灌溉等级，给出相应建议。
+
+\begin{table}[htbp]
+\centering
+\caption{灌溉等级与建议}
+\label{tab:irrigation_level}
+\begin{tabular}{lc}
+\toprule
+ETc 范围 & 灌溉建议 \\
+\midrule
+$< 1.5$ mm/day   & 无需灌溉 \\
+$1.5 \sim 3.0$ mm/day & 轻度灌溉 \\
+$3.0 \sim 5.0$ mm/day & 中度灌溉 \\
+$\geq 5.0$ mm/day     & 大量灌溉 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{批量预测模块}
+\label{subsec:batch_predict}
+
+用户可上传包含多日气象数据的 CSV 文件，系统逐行调用模型进行批量预测，将预测结果以折线图形式可视化展示（可选与实测值对比），并支持一键下载预测结果为 CSV 文件。该功能适用于生育季整体灌溉需求分析与历史数据回测。
+
+\subsubsection{模型信息展示模块}
+\label{subsec:model_info}
+
+系统提供模型配置信息展示页面，包括：
+
+（1）IBA-ELM 训练参数一览（隐层神经元数、种群规模、迭代代数、正则化系数范围等）；
+
+（2）模型在测试集上的性能指标（$R^2$、RMSE、MAE）；
+
+（3）IBA 优化过程收敛曲线，供用户直观了解算法寻优行为。
+
+\subsection{安装与运行}
+\label{sec:sys_install}
+
+\subsubsection{环境要求}
+
+系统基于 Python 3.8+ 开发，依赖以下主要库：
+
+\begin{itemize}
+\item \texttt{numpy}、\texttt{scipy}：数值计算与矩阵运算（ELM 正则化求解）；
+\item \texttt{pandas}：数据加载与预处理；
+\item \texttt{scikit-learn}：数据标准化与交叉验证；
+\item \texttt{streamlit}：Web 交互界面框架；
+\item \texttt{matplotlib}：预测曲线可视化。
+\end{itemize}
+
+\subsubsection{安装步骤}
+
+\begin{enumerate}
+  \item 安装依赖库：
+\begin{verbatim}
+pip install -r requirements.txt
+\end{verbatim}
+
+  \item 训练并保存模型（仅需运行一次，自动保存为 \texttt{model\_relm.npz}）：
+\begin{verbatim}
+python train_model.py
+\end{verbatim}
+
+  \item 启动可视化系统：
+\begin{verbatim}
+python -m streamlit run app.py
+\end{verbatim}
+
+  \item 系统启动后，浏览器自动打开本地地址（默认 \texttt{http://localhost:8501}），即可进入交互界面。
+\end{enumerate}
+
+\subsubsection{文件结构说明}
+
+系统的主要文件结构如下：
+
+\begin{itemize}
+  \item \texttt{train\_model.py}：模型训练脚本，运行后将 IBA-ELM 参数保存为 \texttt{model\_relm.npz}；
+  \item \texttt{app.py}：Streamlit 应用主程序，包含单次预测、批量预测与模型信息展示三大功能模块；
+  \item \texttt{iba\_relm.py}：IBA-ELM（含 L2 正则化）核心算法实现；
+  \item \texttt{data\_loader.py}：数据加载与预处理工具；
+  \item \texttt{model\_relm.npz}：训练完成后自动生成的模型参数文件；
+  \item \texttt{requirements.txt}：Python 依赖列表。
+\end{itemize}
+
+\subsection{本章小结}
+\label{sec:ch6_summary}
+
+本章介绍了基于 IBA-ELM 模型的冬小麦智能灌溉预测系统，该系统以 Streamlit 框架构建，支持单次预测与批量预测两种使用模式，并提供灌溉等级建议与模型信息展示功能。系统将本研究所提出的改进模型封装为交互式工具，用户无需了解机器学习细节即可完成日尺度 $ET_c$ 预测，实现了研究成果向实际应用的转化。安装过程简洁，仅需完成依赖安装、模型训练（一次性）与服务启动三个步骤，具有良好的可部署性与可扩展性。
+
+
+\end{document}
